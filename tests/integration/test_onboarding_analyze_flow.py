@@ -79,7 +79,7 @@ def test_analyze_sql_repair_loop(monkeypatch):
             question=question,
             requires_mining=False,
             intent="country_revenue",
-            planner_source="ollama",
+            planner_source="huggingface",
             task_type="sql_retrieval",
             entity_scope="top_n",
             entity_dimension="country",

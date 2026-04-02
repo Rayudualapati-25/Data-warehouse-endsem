@@ -12,7 +12,7 @@ def test_analyze_mining_uses_snapshot(monkeypatch):
             question="show trend analysis",
             requires_mining=True,
             intent="trend_analysis",
-            planner_source="ollama",
+            planner_source="huggingface",
         )
 
     def fake_get_snapshot(snapshot_type: str, refresh_if_stale: bool = True):
@@ -34,7 +34,7 @@ def test_analyze_mining_uses_snapshot(monkeypatch):
     assert response.status_code == 200
     body = response.json()
     assert body["intent"] == "trend_analysis"
-    assert body["planner_source"] == "ollama"
+    assert body["planner_source"] == "huggingface"
     assert body["sql"] == "-- mining snapshot retrieval"
     assert body["rows"][0]["snapshot_version"] == 3
     assert body["rows"][0]["run_id"] == "run-abc-123"

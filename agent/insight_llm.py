@@ -2,9 +2,9 @@ import json
 import os
 import re
 from typing import Any, Dict, List
-from urllib import error, request
 
 from utils.env_loader import load_environments
+from utils.hf_client import hf_generate
 
 
 def _extract_json_blob(text: str) -> dict:
@@ -62,22 +62,14 @@ def _build_evidence_map(analysis: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     return evidence
 
 
-def _call_ollama_for_insights(
+def _call_hf_for_insights(
     analysis: Dict[str, Any],
     evidence_map: Dict[str, Dict[str, Any]],
     trace_id: str | None = None,
     prompt_version: str | None = None,
 ) -> Dict[str, Any]:
     load_environments()
-    model = os.getenv("INSIGHT_MODEL") or os.getenv("OLLAMA_MODEL")
-    base_url = os.getenv("INSIGHT_MODEL_BASE_URL") or os.getenv("OLLAMA_BASE_URL")
-    timeout_raw = os.getenv("INSIGHT_MODEL_TIMEOUT_SEC", "20")
-    if not model:
-        raise RuntimeError("INSIGHT_MODEL or OLLAMA_MODEL is required for LLM insights")
-    if not base_url:
-        raise RuntimeError("INSIGHT_MODEL_BASE_URL or OLLAMA_BASE_URL is required for LLM insights")
-
-    timeout_sec = float(timeout_raw)
+    model = os.getenv("INSIGHT_MODEL") or None
 
     resolved_prompt_version = prompt_version or os.getenv("INSIGHT_PROMPT_VERSION", "v1")
 
@@ -94,31 +86,12 @@ def _call_ollama_for_insights(
         f"Evidence keys: {json.dumps({k: v['source_value'] for k, v in evidence_map.items()})}\n"
     )
 
-    payload = json.dumps(
-        {
-            "model": model,
-            "prompt": prompt,
-            "stream": False,
-            "options": {"temperature": 0.1},
-        }
-    ).encode("utf-8")
-
-    req = request.Request(
-        url=f"{base_url.rstrip('/')}/api/generate",
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
     try:
-        with request.urlopen(req, timeout=timeout_sec) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-    except (error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"Ollama insight request failed: {exc}") from exc
+        text = hf_generate(prompt, model_override=model, temperature=0.1)
+    except Exception as exc:
+        raise RuntimeError(f"HF insight request failed: {exc}") from exc
 
-    response_text = body.get("response", "").strip()
-    if not response_text:
-        raise RuntimeError("Ollama returned empty insight response")
-    return _extract_json_blob(response_text)
+    return _extract_json_blob(text)
 
 
 def generate_llm_sections(
@@ -130,7 +103,7 @@ def generate_llm_sections(
     if not evidence_map:
         raise RuntimeError("No evidence available for LLM insights")
 
-    generated = _call_ollama_for_insights(
+    generated = _call_hf_for_insights(
         analysis,
         evidence_map,
         trace_id=trace_id,

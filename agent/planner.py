@@ -3,9 +3,9 @@ import os
 import re
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
-from urllib import error, request
 
 from utils.env_loader import load_environments
+from utils.hf_client import hf_generate
 
 
 @dataclass
@@ -107,7 +107,7 @@ def _infer_top_n(question: str) -> Optional[int]:
 def _normalize_plan(parsed: Dict[str, Any], question: str) -> Plan:
     intent = str(parsed.get("intent", "")).strip()
     if intent not in _VALID_INTENTS:
-        raise RuntimeError(f"Ollama returned invalid intent: {intent}")
+        raise RuntimeError(f"LLM returned invalid intent: {intent}")
 
     requires_mining = bool(parsed.get("requires_mining", False))
 
@@ -158,7 +158,7 @@ def _normalize_plan(parsed: Dict[str, Any], question: str) -> Plan:
         question=question,
         requires_mining=requires_mining,
         intent=intent,
-        planner_source="ollama",
+        planner_source="huggingface",
         task_type=task_type,
         entity_scope=entity_scope,
         entity_dimension=entity_dimension,
@@ -176,23 +176,9 @@ def build_plan(
     prompt_version: Optional[str] = None,
 ) -> Plan:
     load_environments()
-    model = os.getenv("OLLAMA_MODEL")
-    base_url = os.getenv("OLLAMA_BASE_URL")
-    timeout_raw = os.getenv("OLLAMA_TIMEOUT_SEC")
-    planner_enabled = os.getenv("OLLAMA_PLANNER_ENABLED")
-
-    if not planner_enabled:
-        raise RuntimeError("OLLAMA_PLANNER_ENABLED is required")
+    planner_enabled = os.getenv("HF_PLANNER_ENABLED", "1")
     if planner_enabled.strip().lower() in {"0", "false", "no"}:
-        raise RuntimeError("OLLAMA planner is disabled via OLLAMA_PLANNER_ENABLED")
-    if not model:
-        raise RuntimeError("OLLAMA_MODEL is required")
-    if not base_url:
-        raise RuntimeError("OLLAMA_BASE_URL is required")
-    if not timeout_raw:
-        raise RuntimeError("OLLAMA_TIMEOUT_SEC is required")
-
-    timeout_sec = float(timeout_raw)
+        raise RuntimeError("HF planner is disabled via HF_PLANNER_ENABLED")
 
     resolved_prompt_version = prompt_version or os.getenv("PLANNER_PROMPT_VERSION", "v1")
 
@@ -212,31 +198,12 @@ def build_plan(
         f"Dataset metadata context:\n{_metadata_context(dataset_metadata)}"
     )
 
-    payload = json.dumps(
-        {
-            "model": model,
-            "prompt": prompt,
-            "stream": False,
-            "options": {"temperature": 0},
-        }
-    ).encode("utf-8")
-
-    http_request = request.Request(
-        url=f"{base_url.rstrip('/')}/api/generate",
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
+    planner_model = os.getenv("PLANNER_MODEL") or None
 
     try:
-        with request.urlopen(http_request, timeout=timeout_sec) as response:
-            body = json.loads(response.read().decode("utf-8"))
-    except (error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"Ollama planner request failed: {exc}") from exc
-
-    text = body.get("response", "").strip()
-    if not text:
-        raise RuntimeError("Ollama returned empty planner response")
+        text = hf_generate(prompt, model_override=planner_model, temperature=0.01)
+    except Exception as exc:
+        raise RuntimeError(f"HF planner request failed: {exc}") from exc
 
     parsed = _extract_json_blob(text)
     return _normalize_plan(parsed, question=question)

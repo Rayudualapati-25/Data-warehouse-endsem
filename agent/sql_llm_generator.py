@@ -2,11 +2,11 @@ import json
 import os
 import re
 from typing import Any, Dict, Optional
-from urllib import error, request
 
 from agent.executor import validate_sql
 from agent.planner import Plan
 from utils.env_loader import load_environments
+from utils.hf_client import hf_generate
 
 
 def _extract_json_blob(text: str) -> Dict[str, Any]:
@@ -142,42 +142,15 @@ def _plan_context(plan: Plan) -> str:
     )
 
 
-def _call_ollama(prompt: str) -> Dict[str, Any]:
+def _call_hf_sql(prompt: str) -> Dict[str, Any]:
     load_environments()
-    model = os.getenv("SQL_MODEL") or os.getenv("OLLAMA_MODEL")
-    base_url = os.getenv("SQL_MODEL_BASE_URL") or os.getenv("OLLAMA_BASE_URL")
-    timeout_raw = os.getenv("SQL_MODEL_TIMEOUT_SEC", "20")
-    if not model:
-        raise RuntimeError("SQL_MODEL or OLLAMA_MODEL is required")
-    if not base_url:
-        raise RuntimeError("SQL_MODEL_BASE_URL or OLLAMA_BASE_URL is required")
-    timeout_sec = float(timeout_raw)
-
-    payload = json.dumps(
-        {
-            "model": model,
-            "prompt": prompt,
-            "stream": False,
-            "options": {"temperature": 0},
-        }
-    ).encode("utf-8")
-
-    req = request.Request(
-        url=f"{base_url.rstrip('/')}/api/generate",
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
+    model = os.getenv("SQL_MODEL") or None
 
     try:
-        with request.urlopen(req, timeout=timeout_sec) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-    except (error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"Ollama SQL generator request failed: {exc}") from exc
+        text = hf_generate(prompt, model_override=model, temperature=0.01)
+    except Exception as exc:
+        raise RuntimeError(f"HF SQL generator request failed: {exc}") from exc
 
-    text = body.get("response", "").strip()
-    if not text:
-        raise RuntimeError("Ollama returned empty SQL generator response")
     return _extract_json_blob(text)
 
 
@@ -212,7 +185,7 @@ def generate_sql_from_plan(
     if error_message:
         prompt += f"Database/runtime error:\n{error_message}\n"
 
-    parsed = _call_ollama(prompt)
+    parsed = _call_hf_sql(prompt)
     sql = str(parsed.get("sql", "")).strip()
     if not sql:
         raise RuntimeError("SQL generator response missing `sql`")
