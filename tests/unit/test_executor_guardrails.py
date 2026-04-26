@@ -66,6 +66,7 @@ def test_execute_safe_query_sets_statement_timeout(monkeypatch):
             return False
 
     fake_session = FakeSession()
+    monkeypatch.setenv("DB_ENGINE", "postgres")
     monkeypatch.setattr("agent.executor.db_session", lambda: fake_session)
 
     rows = execute_safe_query("SELECT 1 AS value", row_limit=5, timeout_ms=3210)

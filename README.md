@@ -138,14 +138,14 @@ Run API:
 uvicorn api.main:app --reload
 ```
 
-Hugging Face Inference API configuration (required):
+Groq API configuration (required for live LLM analysis):
 
-- `HF_TOKEN=hf_your_token_here`
-- `HF_MODEL=mistralai/Mistral-7B-Instruct-v0.3` (default)
-- `HF_TIMEOUT_SEC=30` (default)
-- `HF_PLANNER_ENABLED=1` (default)
+- `GROQ_API_KEY=gsk_your_key_here`
+- `GROQ_MODEL=llama-3.3-70b-versatile` (default)
+- `GROQ_TIMEOUT_SEC=30` (default)
+- `GROQ_PLANNER_ENABLED=1` (default)
 
-Planner uses Hugging Face Inference API. If HF_TOKEN is missing or planner is disabled, `/analyze` returns an error.
+Planner uses the Groq chat completions API. If `GROQ_API_KEY` is missing or planner is disabled, `/analyze` returns an error.
 
 Endpoints:
 
@@ -167,7 +167,7 @@ Endpoints:
 `/analyze` response includes:
 
 - `trace_id` (request-level observability ID)
-- `planner_source` (`huggingface`)
+- `planner_source` (`groq`)
 - `retries_used` (0 or 1)
 
 Structured report endpoint:
@@ -178,10 +178,10 @@ curl -X POST "http://127.0.0.1:8000/analyze/report" \
   -d "{\"question\":\"show trend analysis\"}"
 ```
 
-Optional HF-based insight narration for `/analyze/report`:
+Optional Groq-based insight narration for `/analyze/report`:
 
 - `INSIGHT_MODEL_ENABLED=1`
-- `INSIGHT_MODEL=mistralai/Mistral-7B-Instruct-v0.3` (optional, falls back to `HF_MODEL`)
+- `INSIGHT_MODEL=llama-3.3-70b-versatile` (optional, falls back to `GROQ_MODEL`)
 
 When enabled, LLM-generated insights are accepted only if evidence keys map to actual computed values; otherwise API falls back to deterministic insights.
 
@@ -237,11 +237,11 @@ Structured planner output (internal contract) now includes:
 - `time_grain`
 - `compare_against`
 
-SQL generation now supports HF Inference API + repair loop:
+SQL generation now supports Groq LLM generation + repair loop:
 
 - `SQL_LLM_ENABLED=1`
 - `SQL_REPAIR_MAX_RETRIES=2`
-- `SQL_MODEL` (optional, falls back to `HF_MODEL`)
+- `SQL_MODEL` (optional, falls back to `GROQ_MODEL`)
 - `SQL_PROMPT_VERSION=v1`
 - `PLANNER_PROMPT_VERSION=v1`
 - `INSIGHT_PROMPT_VERSION=v1`

@@ -4,7 +4,7 @@ import re
 from typing import Any, Dict, List
 
 from utils.env_loader import load_environments
-from utils.hf_client import hf_generate
+from utils.groq_client import groq_generate
 
 
 def _extract_json_blob(text: str) -> dict:
@@ -62,7 +62,7 @@ def _build_evidence_map(analysis: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     return evidence
 
 
-def _call_hf_for_insights(
+def _call_llm_for_insights(
     analysis: Dict[str, Any],
     evidence_map: Dict[str, Dict[str, Any]],
     trace_id: str | None = None,
@@ -87,9 +87,9 @@ def _call_hf_for_insights(
     )
 
     try:
-        text = hf_generate(prompt, model_override=model, temperature=0.1)
+        text = groq_generate(prompt, model_override=model, temperature=0.1)
     except Exception as exc:
-        raise RuntimeError(f"HF insight request failed: {exc}") from exc
+        raise RuntimeError(f"Groq insight request failed: {exc}") from exc
 
     return _extract_json_blob(text)
 
@@ -103,7 +103,7 @@ def generate_llm_sections(
     if not evidence_map:
         raise RuntimeError("No evidence available for LLM insights")
 
-    generated = _call_hf_for_insights(
+    generated = _call_llm_for_insights(
         analysis,
         evidence_map,
         trace_id=trace_id,

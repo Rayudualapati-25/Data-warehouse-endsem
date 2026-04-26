@@ -28,7 +28,10 @@ metadata/quality_reports/
 # OS / editor
 .DS_Store
 Thumbs.db
+~$*
 .vscode/
 .idea/
 *.csv
 *.csv.*
+!results/tables/
+!results/tables/*.csv

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from utils.env_loader import load_environments
-from utils.hf_client import hf_generate
+from utils.groq_client import groq_generate
 
 
 @dataclass
@@ -158,7 +158,7 @@ def _normalize_plan(parsed: Dict[str, Any], question: str) -> Plan:
         question=question,
         requires_mining=requires_mining,
         intent=intent,
-        planner_source="huggingface",
+        planner_source="groq",
         task_type=task_type,
         entity_scope=entity_scope,
         entity_dimension=entity_dimension,
@@ -176,9 +176,9 @@ def build_plan(
     prompt_version: Optional[str] = None,
 ) -> Plan:
     load_environments()
-    planner_enabled = os.getenv("HF_PLANNER_ENABLED", "1")
+    planner_enabled = os.getenv("GROQ_PLANNER_ENABLED", "1")
     if planner_enabled.strip().lower() in {"0", "false", "no"}:
-        raise RuntimeError("HF planner is disabled via HF_PLANNER_ENABLED")
+        raise RuntimeError("Groq planner is disabled via GROQ_PLANNER_ENABLED")
 
     resolved_prompt_version = prompt_version or os.getenv("PLANNER_PROMPT_VERSION", "v1")
 
@@ -201,9 +201,9 @@ def build_plan(
     planner_model = os.getenv("PLANNER_MODEL") or None
 
     try:
-        text = hf_generate(prompt, model_override=planner_model, temperature=0.01)
+        text = groq_generate(prompt, model_override=planner_model, temperature=0.01)
     except Exception as exc:
-        raise RuntimeError(f"HF planner request failed: {exc}") from exc
+        raise RuntimeError(f"Groq planner request failed: {exc}") from exc
 
     parsed = _extract_json_blob(text)
     return _normalize_plan(parsed, question=question)

@@ -1,0 +1,6 @@
+check,status,evidence
+pytest,passed,"20 tests passed in 0.82s"
+api_health,passed,"GET /health returned {""status"":""ok""}"
+dataset_list,passed,"GET /dataset/list returned demo_sales with status ready"
+frontend_http,passed,"GET / on port 5173 returned HTTP 200"
+analyze_debug,passed,"POST /analyze/debug returned evaluator_status ok, 10 rows, retries_used 0"

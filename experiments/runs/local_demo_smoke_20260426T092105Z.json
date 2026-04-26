@@ -1,0 +1,51 @@
+{
+  "run_id": "local_demo_smoke_20260426T092105Z",
+  "created_at_utc": "2026-04-26T09:21:05Z",
+  "purpose": "Verify the local demo runtime after fixing startup and frontend API configuration.",
+  "environment": {
+    "platform": "darwin",
+    "python": "3.13.5",
+    "api_url": "http://127.0.0.1:8000",
+    "frontend_url": "http://127.0.0.1:5173",
+    "database": "data/demo.sqlite",
+    "planner_source": "groq"
+  },
+  "checks": [
+    {
+      "name": "pytest",
+      "status": "passed",
+      "evidence": "20 tests passed in 0.82s"
+    },
+    {
+      "name": "api_health",
+      "status": "passed",
+      "evidence": "GET /health returned {\"status\":\"ok\"}"
+    },
+    {
+      "name": "dataset_list",
+      "status": "passed",
+      "evidence": "GET /dataset/list returned demo_sales with status ready"
+    },
+    {
+      "name": "frontend_http",
+      "status": "passed",
+      "evidence": "GET / on port 5173 returned HTTP 200"
+    },
+    {
+      "name": "analyze_debug",
+      "status": "passed",
+      "trace_id": "cbcfae6c-3d48-498e-a6ec-894efa7c8bbb",
+      "question": "Show top 10 customers by total revenue",
+      "dataset_id": "78299f0b-be70-4072-8d50-a017974f66ac",
+      "intent": "top_customers",
+      "evaluator_status": "ok",
+      "row_count": 10,
+      "retries_used": 0,
+      "sql": "WITH ranked_customers AS (SELECT dim_customer.customer_id, SUM(fact_sales.total_amount) AS total_revenue FROM fact_sales JOIN dim_customer ON fact_sales.customer_id = dim_customer.customer_id GROUP BY dim_customer.customer_id) SELECT customer_id, total_revenue FROM ranked_customers ORDER BY total_revenue DESC LIMIT 10"
+    }
+  ],
+  "limitations": [
+    "The live analysis check depends on a valid GROQ_API_KEY and network access.",
+    "This smoke test verifies local runtime health; it is not a model-quality benchmark."
+  ]
+}

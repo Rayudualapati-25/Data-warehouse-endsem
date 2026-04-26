@@ -6,5 +6,5 @@ pytest-asyncio>=0.20
 numpy>=1.26
 scikit-learn>=1.4
 starlette>=0.31
-httpx>=0.30
-huggingface-hub>=0.23
+httpx>=0.25,<1.0
+groq>=0.9

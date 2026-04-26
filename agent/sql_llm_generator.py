@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 from agent.executor import validate_sql
 from agent.planner import Plan
 from utils.env_loader import load_environments
-from utils.hf_client import hf_generate
+from utils.groq_client import groq_generate
 
 
 def _extract_json_blob(text: str) -> Dict[str, Any]:
@@ -76,12 +76,25 @@ def _extract_tables_from_sql(sql: str) -> set[str]:
     return tables
 
 
+def _extract_cte_names(sql: str) -> set[str]:
+    """Extract CTE alias names from WITH clauses so they can be excluded from allowlist checks."""
+    cte_names: set[str] = set()
+    with_match = re.search(r"\bwith\b(.*?)\bselect\b", sql, flags=re.IGNORECASE | re.DOTALL)
+    if not with_match:
+        return cte_names
+    cte_block = with_match.group(1)
+    for name_match in re.finditer(r"([A-Za-z_][A-Za-z0-9_]*)\s*(?:\([^)]*\))?\s+as\s*\(", cte_block, flags=re.IGNORECASE):
+        cte_names.add(name_match.group(1).strip())
+    return cte_names
+
+
 def _assert_allowlisted_tables(sql: str, metadata: Dict[str, Any] | None) -> None:
     allowed = _allowed_table_set(metadata)
     if not allowed:
         return
     used = _extract_tables_from_sql(sql)
-    disallowed = sorted([table for table in used if table not in allowed])
+    cte_names = _extract_cte_names(sql)
+    disallowed = sorted([table for table in used if table not in allowed and table not in cte_names])
     if disallowed:
         raise RuntimeError(f"Generated SQL uses non-allowlisted table(s): {disallowed}")
 
@@ -114,9 +127,12 @@ def _assert_allowlisted_columns(sql: str, metadata: Dict[str, Any] | None) -> No
     if not allowed_cols:
         return
     aliases = _extract_table_aliases(sql)
+    cte_names = _extract_cte_names(sql)
     disallowed: list[str] = []
     for left, col in _extract_dotted_columns(sql):
         table = aliases.get(left, left)
+        if table in cte_names or left in cte_names:
+            continue
         if table not in allowed_cols:
             disallowed.append(f"{left}.{col} (unknown table)")
             continue
@@ -142,14 +158,14 @@ def _plan_context(plan: Plan) -> str:
     )
 
 
-def _call_hf_sql(prompt: str) -> Dict[str, Any]:
+def _call_llm_sql(prompt: str) -> Dict[str, Any]:
     load_environments()
     model = os.getenv("SQL_MODEL") or None
 
     try:
-        text = hf_generate(prompt, model_override=model, temperature=0.01)
+        text = groq_generate(prompt, model_override=model, temperature=0.01)
     except Exception as exc:
-        raise RuntimeError(f"HF SQL generator request failed: {exc}") from exc
+        raise RuntimeError(f"Groq SQL generator request failed: {exc}") from exc
 
     return _extract_json_blob(text)
 
@@ -185,7 +201,7 @@ def generate_sql_from_plan(
     if error_message:
         prompt += f"Database/runtime error:\n{error_message}\n"
 
-    parsed = _call_hf_sql(prompt)
+    parsed = _call_llm_sql(prompt)
     sql = str(parsed.get("sql", "")).strip()
     if not sql:
         raise RuntimeError("SQL generator response missing `sql`")

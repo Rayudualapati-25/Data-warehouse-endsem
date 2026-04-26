@@ -1,0 +1,163 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{longtable}
+\usepackage{xcolor}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue,
+  citecolor=blue
+}
+
+\renewcommand{\contentsname}{Table of content}
+\setlist[itemize]{leftmargin=1.2em}
+\setlist[enumerate]{leftmargin=1.4em}
+
+\title{Autonomous SQL Agent Data Warehouse\\Project Report}
+\author{Data Warehouse End-Sem Project}
+\date{April 26, 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This project implements a baseline autonomous analytics pipeline for a data warehouse. The system combines dataset onboarding, schema introspection, semantic mapping, LLM-assisted planning, SQL generation, guarded SQL execution, result evaluation, structured reporting, and a static frontend demo. The current repository evidence shows that the local demo ran successfully with a SQLite demo warehouse, FastAPI backend, static frontend, and Groq-backed planner and SQL generator. The strongest live evidence is the smoke run recorded in \path{experiments/runs/local_demo_smoke_20260426T092105Z.json}, where the automated tests passed, the API health check succeeded, the demo dataset was registered as ready, the frontend returned HTTP 200, and one \path{/analyze/debug} request returned evaluator status \texttt{ok} with 10 rows and 0 retries. This report does not claim state-of-the-art performance or publication readiness; it reports only the functionality and measurements supported by repository artifacts.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\section{Introduction}
+
+Modern analytical applications often require users to translate business questions into SQL over warehouse schemas. This project explores a practical baseline for reducing that manual translation work. The implemented system accepts natural-language analytical questions, derives a structured plan, generates SQL against known schema metadata, executes only guarded read-only queries, and returns tabular results with debug information.
+
+The repository identifies the project as an ``Autonomous SQL Agent Data Warehouse (Baseline)'' in \path{README.md}. The demo path in \path{QUICKSTART.md} uses a SQLite warehouse seeded by \path{scripts/seed_sqlite_demo.py}, a FastAPI backend on port 8000, a static frontend on port 5173, and Groq \texttt{llama-3.3-70b-versatile} as the cloud LLM provider for the documented demo configuration.
+
+\section{Problem statement}
+
+The project addresses the problem of making warehouse data accessible through natural-language analytical questions while preserving safety, traceability, and reproducibility. A direct LLM-to-SQL workflow can produce unsupported tables, unsafe statements, ambiguous joins, or unverifiable analysis. The repository therefore implements a pipeline that adds schema context, allowlist checks, result evaluation, traces, cached artifacts, and deterministic local demo setup.
+
+The current problem scope is not general autonomous decision making. It is a baseline analytics system that can onboard a dataset, inspect schema metadata, generate safe read-only SQL, execute the SQL against supported database adapters, and expose the result through API and frontend surfaces.
+
+\section{Objectives}
+
+\begin{enumerate}
+  \item Provide a reproducible local demo that starts the backend, frontend, demo database, and dataset onboarding flow from a clean checkout path documented in \path{QUICKSTART.md}.
+  \item Support dataset registration and metadata introspection through API endpoints implemented in \path{api/routes.py} and onboarding services in \path{onboarding/service.py}.
+  \item Use schema-aware planning and SQL generation so that generated queries are grounded in available tables and columns.
+  \item Restrict execution to read-only \texttt{SELECT} or CTE queries and reject unsafe SQL keywords through \path{agent/executor.py}.
+  \item Record enough artifacts to support later analysis, including run records in \path{experiments/runs/}, tables in \path{results/tables/}, and traces in \path{metadata/query_traces.jsonl}.
+  \item Report results honestly, including dependencies and limitations such as the need for a valid Groq API key for live LLM analysis.
+\end{enumerate}
+
+\section{Scope of the project}
+
+The implemented scope includes a data warehouse schema, ETL components, database adapters, schema introspection, semantic mapping, LLM planner and SQL generation components, guarded execution, simple result evaluation, mining snapshots, evaluation endpoints, and a browser-based demo interface. The repository structure and endpoint list are described in \path{README.md}.
+
+The demo-specific scope is narrower. \path{QUICKSTART.md} describes a presentation flow using a seeded SQLite database at \path{data/demo.sqlite}, a static frontend, and a FastAPI backend. The seeded database contains dimension tables for customers, products, and dates, plus a \texttt{fact\_sales} table. The seed script uses deterministic random generation for sales rows with \texttt{random.Random(42)} in \path{scripts/seed_sqlite_demo.py}; customer country assignment uses the global random module and is therefore not fully pinned by the same local seed in the current script.
+
+Out of scope for the current evidence are claims about production readiness, security hardening beyond the implemented SQL guardrails, model quality across many real datasets, and live benchmark performance. The benchmark artifact at \path{docs/benchmark_report.md} lists three statements but records execution times as \texttt{None}, so it cannot support latency or database performance claims.
+
+\section{Methodology Architecture}
+
+The system is organized as a staged analytics pipeline:
+
+\begin{enumerate}
+  \item Dataset onboarding registers a dataset and introspects schema metadata through \path{onboarding/service.py} and \path{schema/introspector/service.py}.
+  \item Semantic mapping ranks candidate entities, measures, and time columns using table and column metadata in \path{schema/semantic_mapper/mapper.py}.
+  \item The planner in \path{agent/planner.py} asks the LLM to return a structured JSON plan with fields such as \texttt{intent}, \texttt{task\_type}, \texttt{entity\_scope}, \texttt{metric}, \texttt{time\_grain}, and \texttt{compare\_against}.
+  \item The SQL generator in \path{agent/sql_llm_generator.py} asks the LLM for a JSON object containing SQL, then validates the output against read-only rules, allowed tables, and allowed columns.
+  \item The executor in \path{agent/executor.py} wraps safe SQL in a limiting query or routes it through the selected adapter for SQLite, PostgreSQL, or MySQL paths.
+  \item The evaluator in \path{agent/evaluator.py} marks non-empty results as \texttt{ok} and empty results as retryable.
+  \item The API in \path{api/routes.py} exposes health, dataset, analysis, mining, and evaluation endpoints. The debug path also returns trace metadata such as row count, retries, prompt versions, cache status, and plan fields.
+  \item Mining modules such as \path{mining/feature_builder.py} support schema-aware trend and segmentation feature generation where suitable metadata exists.
+\end{enumerate}
+
+\begin{table}[h]
+\centering
+\caption{Main runtime components}
+\begin{tabular}{p{0.28\linewidth}p{0.58\linewidth}}
+\toprule
+\textbf{Component} & \textbf{Repository evidence} \\
+\midrule
+Frontend demo & Static HTML/CSS/JS under \path{frontend/}; served on port 5173 according to \path{QUICKSTART.md}. \\
+Backend API & FastAPI app in \path{api/main.py}; routes implemented in \path{api/routes.py}. \\
+Warehouse demo data & SQLite file at \path{data/demo.sqlite}; seed logic in \path{scripts/seed_sqlite_demo.py}. \\
+Planner and SQL generation & Groq-backed planner in \path{agent/planner.py}; SQL generation and repair in \path{agent/sql_llm_generator.py}. \\
+Execution safety & SQL validation and guarded execution in \path{agent/executor.py}. \\
+Traceability & Run record in \path{experiments/runs/local_demo_smoke_20260426T092105Z.json}; traces appended under \path{metadata/query_traces.jsonl}. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Implementation}
+
+The FastAPI application is created in \path{api/main.py}, enables permissive CORS for the demo, and includes the router from \path{api/routes.py}. The route layer coordinates health checks, dataset onboarding, dataset metadata access, analysis, debug analysis, structured report generation, mining refresh, and evaluation summaries.
+
+Dataset onboarding stores a dataset record, introspects the configured source, builds a semantic map, saves schema metadata, saves semantic map artifacts, and marks the dataset as ready. This flow is implemented in \path{onboarding/service.py}. The schema introspector delegates to the selected adapter through \path{schema/introspector/service.py}, which allows the same higher-level flow to work across supported engines.
+
+The planning stage is implemented in \path{agent/planner.py}. It builds an LLM prompt containing allowed intent values, task types, entity scope values, time grains, comparison types, the user question, and a compact dataset metadata context. The returned JSON is normalized and validated against allowed values before downstream use.
+
+The SQL generation stage is implemented in \path{agent/sql_llm_generator.py}. It sends the question, structured plan, and metadata context to the LLM, expects JSON of the form \texttt{\{"sql": "..."\}}, then applies SQL validation and allowlist checks. If execution fails or returns no rows, \path{api/routes.py} can call the SQL generator again in repair mode, passing the previous SQL and error message.
+
+Execution safety is enforced in \path{agent/executor.py}. The validator rejects empty SQL, multiple statements, non-\texttt{SELECT}/CTE statements, and denylisted keywords such as \texttt{insert}, \texttt{update}, \texttt{delete}, \texttt{drop}, \texttt{alter}, and \texttt{truncate}. The executor also applies row limits and timeouts before returning rows as dictionaries.
+
+The local demo setup is documented in \path{QUICKSTART.md}. The one-command script \path{start_demo.sh} is documented as creating a virtual environment if needed, installing dependencies, seeding the SQLite demo database, starting the API, onboarding the demo dataset, and starting the frontend. The demo flow asks the user to select \texttt{demo\_sales}, run a question such as ``Top 10 customers by revenue,'' and inspect generated SQL, result rows, metrics, and debug trace.
+
+\section{Result and analysis}
+
+The strongest completed runtime evidence is the local demo smoke run recorded in \path{experiments/runs/local_demo_smoke_20260426T092105Z.json} and summarized in \path{results/tables/local_demo_smoke_20260426T092105Z.csv}. The run was created on 2026-04-26 at 09:21:05 UTC on Darwin with Python 3.13.5. It used API URL \path{http://127.0.0.1:8000}, frontend URL \path{http://127.0.0.1:5173}, database \path{data/demo.sqlite}, and planner source \texttt{groq}.
+
+\begin{longtable}{p{0.25\linewidth}p{0.18\linewidth}p{0.47\linewidth}}
+\caption{Evidence from local demo smoke run} \\
+\toprule
+\textbf{Check} & \textbf{Status} & \textbf{Evidence} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Check} & \textbf{Status} & \textbf{Evidence} \\
+\midrule
+\endhead
+Automated tests & Passed & \texttt{20 tests passed in 0.82s}. \\
+API health & Passed & \texttt{GET /health} returned \texttt{\{"status":"ok"\}}. \\
+Dataset list & Passed & \texttt{GET /dataset/list} returned \texttt{demo\_sales} with status \texttt{ready}. \\
+Frontend HTTP & Passed & \texttt{GET /} on port 5173 returned HTTP 200. \\
+Debug analysis & Passed & \texttt{POST /analyze/debug} for ``Show top 10 customers by total revenue'' returned evaluator status \texttt{ok}, 10 rows, and 0 retries. \\
+\bottomrule
+\end{longtable}
+
+The debug analysis generated a SQL query using a CTE named \texttt{ranked\_customers}, joined \texttt{fact\_sales} to \texttt{dim\_customer}, grouped by customer, ordered by summed revenue, and applied \texttt{LIMIT 10}. The run record reports trace ID \texttt{cbcfae6c-3d48-498e-a6ec-894efa7c8bbb}. This is evidence that one live natural-language analysis path worked for the seeded demo dataset.
+
+The iteration report at \path{reports/iteration/iter_001.md} records additional context. It states that the local demo could run from the current checkout, the API health endpoint succeeded, the frontend served successfully, the registered \texttt{demo\_sales} SQLite dataset was ready, and the live debug request returned 10 rows with no retries. It also records weaknesses: stale processes previously occupied ports 8000 and 5173, the frontend previously assumed a fixed API URL, and the live analysis path depends on a valid \texttt{GROQ\_API\_KEY}.
+
+The repository also contains \path{docs/evaluation.md}, which reports a mock evaluation campaign with 16 analyze requests, execution success rate 1.0, retry rate 0.125, cache hit rate 0.25, and average latency 377.885 ms. Because the artifact labels the mode as \texttt{mock}, these values should be interpreted as harness evidence rather than live model-quality or production performance evidence.
+
+\section{Conclusion}
+
+The repository contains a working baseline for a schema-aware autonomous SQL analytics demo. The implementation supports dataset onboarding, metadata extraction, semantic mapping, LLM planning, LLM SQL generation with repair, guarded SQL execution, result evaluation, trace recording, and frontend interaction. The completed smoke run provides evidence that the local demo path works for one seeded SQLite dataset and one live Groq-backed analytical query.
+
+The current evidence is suitable for a project demonstration but not for broad claims about accuracy, robustness, latency, or superiority over other systems. The available artifacts support a narrower conclusion: the baseline architecture is implemented, the documented local demo can run, the test suite passed during the smoke run, and one natural-language query completed successfully with traceable output.
+
+\section{Future}
+
+Future work should prioritize stronger evidence and reproducibility:
+
+\begin{enumerate}
+  \item Add a repeatable smoke-test command that verifies health, dataset registration, metadata availability, and at least one deterministic no-LLM endpoint, as recommended in \path{reports/iteration/iter_001.md}.
+  \item Separate live LLM checks from deterministic CI checks so failures caused by network access or quota are reported distinctly.
+  \item Add baseline comparisons for SQL generation quality, such as deterministic template SQL or fixed rule-based planner outputs, before claiming improvement from LLM planning or repair.
+  \item Add ablations for planner metadata context, SQL repair, cache usage, and semantic mapping so each substantive component can be evaluated in isolation.
+  \item Expand live evaluation beyond one demo query and record per-query success, retries, latency, generated SQL, and failure categories under \path{experiments/runs/} and \path{results/tables/}.
+  \item Complete benchmark execution so \path{docs/benchmark_report.md} contains actual execution times rather than \texttt{None}.
+  \item Improve seed determinism by using one explicit random generator for all demo data generation steps.
+  \item Document external service assumptions, especially \texttt{GROQ\_API\_KEY}, model name, network access, and quota limits.
+\end{enumerate}
+
+\end{document}
